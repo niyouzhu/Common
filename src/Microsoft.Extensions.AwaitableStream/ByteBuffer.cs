@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using Microsoft.Extensions.AwaitableStream.Internal;
 
 namespace Microsoft.Extensions.AwaitableStream
 {
@@ -39,14 +40,7 @@ namespace Microsoft.Extensions.AwaitableStream
             }
         }
 
-        public ByteBuffer(ArraySegment<byte> data)
-        {
-            _data = data;
-            _head = null;
-            _tail = null;
-        }
-
-        public ByteBuffer(BufferSegment head, BufferSegment tail)
+        internal ByteBuffer(BufferSegment head, BufferSegment tail)
         {
             _data = default(ArraySegment<byte>);
             _head = head;

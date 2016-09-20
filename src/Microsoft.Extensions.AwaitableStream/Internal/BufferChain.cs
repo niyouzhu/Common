@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 
 namespace Microsoft.Extensions.AwaitableStream.Internal
 {
@@ -8,9 +9,23 @@ namespace Microsoft.Extensions.AwaitableStream.Internal
     /// </summary>
     public class BufferChain
     {
-        private ArraySegment<byte> _singleItem;
         private BufferSegment _head;
         private BufferSegment _tail;
+        private BufferCursor _consumed;
+        private BufferCursor _owned;
+
+        public bool IsEmpty => _head.IsEmpty && _head == _tail;
+
+        public BufferChain()
+        {
+            // Initialize to an empty chain
+            var node = new BufferSegment();
+            _head = node;
+            _tail = node;
+
+            _consumed = new BufferCursor(node, 0);
+            _owned = _consumed;
+        }
 
         public void Append(ArraySegment<byte> buffer)
         {
@@ -19,159 +34,109 @@ namespace Microsoft.Extensions.AwaitableStream.Internal
             // We need to measure the difference in copying versus using the exising buffer for that
             // scenario.
 
-            if (_head == null)
+            if (IsEmpty)
             {
-                // The list is empty, we just store the current write
-                _singleItem = buffer;
+                _head.Replace(buffer);
+                _tail = _head;
             }
             else
             {
-                // Otherwise add this segment to the end of the list
-                var segment = new BufferSegment();
-                segment.Buffer = buffer;
-                _tail.Next = segment;
-                _tail = segment;
+                var node = new BufferSegment(buffer);
+                _tail.Next = node;
+                _tail = node;
             }
         }
 
         public void Consumed(int count)
         {
-            // We didn't consume everything
-            if (count < _singleItem.Count)
+            // Advance the consumed cursor.
+            _consumed += count;
+
+            // Truncate the segments to that new cursor
+            TruncateSegments(_consumed);
+
+            // Now take ownership of the remainder of the buffer chain
+            TakeOwnership();
+        }
+
+        public ByteBuffer GetBuffer() => new ByteBuffer(_head, _tail);
+
+        /// <summary>
+        /// Copies data out of the buffer chain, from <paramref name="start"/> to <paramref name="end"/>, into the specified buffer.
+        /// </summary>
+        public void CopyTo(byte[] buffer, BufferCursor start, BufferCursor end)
+        {
+            if(start == end)
             {
-                // Make a list with the buffer in it and mark the right bytes as consumed
-                if (_head == null)
-                {
-                    _head = new BufferSegment();
-                    _head.Buffer = _singleItem;
-                    _tail = _head;
-                }
-            }
-            else if (_head == null)
-            {
-                // We consumed everything and there was no list
-                _singleItem = default(ArraySegment<byte>);
+                // Nothing to copy
                 return;
             }
 
-            var segment = _head;
-            var segmentOffset = segment.Buffer.Offset;
+            var current = start;
+            var bufferPosition = 0;
 
-            while (count > 0)
+            while (current.Segment != null)
             {
-                var consumed = Math.Min(segment.Buffer.Count, count);
-
-                count -= consumed;
-                segmentOffset += consumed;
-
-                if (segmentOffset == segment.End && _head != _tail)
+                if(current.Segment == end.Segment)
                 {
-                    // Move to the next node
-                    segment = segment.Next;
-                    segmentOffset = segment.Buffer.Offset;
+                    // We're at the end
+                    var toRead = end.Index - current.Index;
+                    current.Segment.CopyTo(buffer, bufferPosition, toRead);
+                    return;
                 }
-
-                // End of the list stop
-                if (_head == _tail)
+                else
                 {
-                    break;
+                    var toRead = current.Segment.Count - current.Index;
+                    current.Segment.CopyTo(buffer, bufferPosition, toRead);
+                    current += toRead;
+                    bufferPosition += toRead;
                 }
             }
+        }
 
-            // Reset the head to the unconsumed buffer
-            _head = segment;
-            _head.Buffer = new ArraySegment<byte>(segment.Buffer.Array, segmentOffset, segment.End - segmentOffset);
-
-            // Loop from head to tail and copy unconsumed data into buffers we own, this
-            // is important because after the call the WriteAsync returns, the stream can reuse these
-            // buffers for anything else
-            int length = 0;
-
-            segment = _head;
-            while (true)
-            {
-                if (!segment.Owned)
-                {
-                    length += segment.Buffer.Count;
-                }
-
-                if (segment == _tail)
-                {
-                    break;
-                }
-
-                segment = segment.Next;
-            }
-
-            // This can happen for 2 reasons:
-            // 1. We consumed everything
-            // 2. We own all the buffers with data, so no need to copy again.
-            if (length == 0)
-            {
-                return;
-            }
-
-            // REVIEW: Use array pool here?
-            // Possibly use fixed size blocks here and just fill them so we can avoid a byte[] per call to write
+        /// <summary>
+        /// Takes ownership of the remainder of the buffer.
+        /// </summary>
+        private void TakeOwnership()
+        {
+            var length = _tail.End - _owned;
             var buffer = new byte[length];
+            CopyTo(buffer, _owned, _tail.End);
 
-            // This loop does 2 things
-            // 1. Finds the first owned buffer in the list
-            // 2. Copies data into the buffer we just allocated
-            BufferSegment owned = null;
-            segment = _head;
-            var offset = 0;
+            // Now replace all the segments after _owned with this
+            // In practice, Owned will be pointing at the end of a segment, so Truncate is a no-op
+            var lastOwnedSegment = _owned.Segment;
+            _owned.Segment.Truncate(_owned.Index);
+            _owned.Segment.Next = new BufferSegment(new ArraySegment<byte>(buffer));
+            _owned += buffer.Length;
+        }
 
-            while (true)
+        /// <summary>
+        /// Remove/truncate segments up to <paramref name="end"/>.
+        /// </summary>
+        /// <param name="end"></param>
+        private void TruncateSegments(BufferCursor end)
+        {
+            var current = _head;
+            while(current != null && current != end.Segment)
             {
-                if (!segment.Owned)
-                {
-                    Buffer.BlockCopy(segment.Buffer.Array, segment.Buffer.Offset, buffer, offset, segment.Buffer.Count);
-                    offset += segment.Buffer.Count;
-                }
-                else if (owned == null)
-                {
-                    owned = segment;
-                }
-
-                if (segment == _tail)
-                {
-                    break;
-                }
-
-                segment = segment.Next;
+                current = current.Next;
             }
 
-            var data = new BufferSegment
+            if(current == null)
             {
-                Buffer = new ArraySegment<byte>(buffer),
-                Owned = true
-            };
-
-            // We didn't own anything in the backlog so replace the entire list
-            // with the same data, but into buffers we own
-            if (owned == null)
-            {
-                _head = data;
+                // We're truncating all buffers, but we DO NOT deallocate the list
+                _head.Clear();
+                _tail = _head;
             }
             else
             {
-                // Otherwise append the new data to the Next of the first owned block
-                owned.Next = data;
+                // Truncate the segment
+                end.Segment.Truncate(end.Index);
+
+                // Advance the head pointer
+                _head = end.Segment;
             }
-
-            // Update tail to point to data
-            _tail = data;
-        }
-
-        public ByteBuffer GetBuffer()
-        {
-            if (_head == null)
-            {
-                return new ByteBuffer(_singleItem);
-            }
-
-            return new ByteBuffer(_head, _tail);
         }
     }
 }
