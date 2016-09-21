@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.AwaitableStream.Internal;
 using Xunit;
 
-namespace Microsoft.Extensions.AwaitableStream.Test
+namespace Microsoft.Extensions.AwaitableStream.Test.Internal
 {
     /// <summary>
     /// Tests for the <see cref="Gate"/> type. Although it is internal, it is a critical

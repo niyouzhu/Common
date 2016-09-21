@@ -73,6 +73,9 @@ namespace Microsoft.Extensions.AwaitableStream
                 Consumed(count);
             }
 
+            // Take ownership of the rest of the buffer before we return to the caller
+            _bufferChain.TakeOwnership();
+
             // Reset the state
             _consumeCalled = false;
         }
@@ -87,7 +90,7 @@ namespace Microsoft.Extensions.AwaitableStream
         public void Consumed(int count)
         {
             _consumeCalled = true;
-            _bufferChain.Consumed(count);
+            _bufferChain.Truncate(count);
         }
 
         protected override void Dispose(bool disposing)

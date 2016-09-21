@@ -11,7 +11,7 @@ namespace Microsoft.Extensions.AwaitableStream
         private readonly BufferSegment _tail;
         private readonly ArraySegment<byte> _data;
 
-        public bool IsEmpty => _head == _tail && (_head?.Buffer.Offset == _head?.End);
+        public bool IsEmpty => _head == _tail && _head?.Buffer.Count == 0;
 
         private bool IsSingleBuffer => _head == _tail;
 
@@ -133,10 +133,7 @@ namespace Microsoft.Extensions.AwaitableStream
             return new ArraySegment<byte>(data, 0, length);
         }
 
-        public Enumerator GetEnumerator()
-        {
-            return new Enumerator(_head, _tail, _data);
-        }
+        public Enumerator GetEnumerator() => new Enumerator(_head, _tail, _data);
 
         public struct Enumerator : IEnumerator<ArraySegment<byte>>
         {
@@ -146,7 +143,7 @@ namespace Microsoft.Extensions.AwaitableStream
             private ArraySegment<byte> _data;
             private int _offset;
 
-            public Enumerator(BufferSegment head, BufferSegment tail, ArraySegment<byte> data)
+            internal Enumerator(BufferSegment head, BufferSegment tail, ArraySegment<byte> data)
             {
                 _head = head;
                 _tail = tail;
