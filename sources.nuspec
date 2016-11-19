@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>$id$</id>
+    <version>$version$</version>
+    <authors>Microsoft</authors>
+    <owners>Microsoft</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>$id$</description>
+    <contentFiles>
+      <files include="contentFiles\cs\any\**\*.cs" buildAction="Compile" />
+      <files include="contentFiles\any\any\**\*.resx" buildAction="EmbeddedResource" />
+    </contentFiles>
+  </metadata>
+  <files>
+    <file src="**\*.resx" target="contentFiles/any/any/" />
+    <file src="**\*.cs" target="contentFiles/cs/any/" />
+    <!-- for backwards compatibilities with project.json -->
+    <file src="**\*.cs" target="shared" />
+  </files>
+</package>
