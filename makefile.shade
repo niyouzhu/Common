@@ -1,10 +1,10 @@
 use namespace="System.IO"
 
+var VersionPrefix = '1.2.0'
 var VERSION='0.1'
 var FULL_VERSION='0.1'
 use-standard-lifecycle
 k-standard-goals
-
 
 #pack-sources target='compile'
     @{
@@ -12,12 +12,19 @@ k-standard-goals
         {
             var nugetPath = E("KOREBUILD_NUGET_EXE") ?? ".build/NuGet.exe";
             var outputDir = "artifacts/build/";
-            var packageVersion = "1.2.0-" + E("DOTNET_BUILD_VERSION");
+
+            var versionSuffix = E("DOTNET_BUILD_VERSION");
+            var packageVersion = VersionPrefix;
+            if (!string.IsNullOrEmpty(versionSuffix))
+            {
+                packageVersion += "-" + versionSuffix;
+            }
+
             NugetPack(nugetPath,
                 "sources.nuspec",
                 outputDir,
                 packageVersion,
-                "-BasePath " + dir + " -Properties id=" + Path.GetFileName(dir));
+                "-BasePath \"" + dir + "\" -Properties id=" + Path.GetFileName(dir));
         }
     }
 
